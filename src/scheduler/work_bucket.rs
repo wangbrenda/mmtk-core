@@ -149,6 +149,7 @@ impl<C: Context> WorkBucket<C> {
 pub enum WorkBucketStage {
     Unconstrained,
     Prepare,
+    PrepareInterior,
     Closure,
     Release,
     Final,

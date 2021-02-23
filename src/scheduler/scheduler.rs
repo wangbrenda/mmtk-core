@@ -47,6 +47,7 @@ impl<C: Context> Scheduler<C> {
             work_buckets: enum_map! {
                 WorkBucketStage::Unconstrained => WorkBucket::new(true, worker_monitor.clone()),
                 WorkBucketStage::Prepare => WorkBucket::new(false, worker_monitor.clone()),
+                WorkBucketStage::PrepareInterior => WorkBucket::new(false, worker_monitor.clone()),
                 WorkBucketStage::Closure => WorkBucket::new(false, worker_monitor.clone()),
                 WorkBucketStage::Release => WorkBucket::new(false, worker_monitor.clone()),
                 WorkBucketStage::Final => WorkBucket::new(false, worker_monitor.clone()),
@@ -93,18 +94,21 @@ impl<C: Context> Scheduler<C> {
 
         self_mut.work_buckets[WorkBucketStage::Closure].set_open_condition(move || {
             self.work_buckets[WorkBucketStage::Unconstrained].is_drained()
-                && self.work_buckets[WorkBucketStage::Prepare].is_drained()
-                && self.worker_group().all_parked()
+            && self.work_buckets[WorkBucketStage::Prepare].is_drained()
+            && self.work_buckets[WorkBucketStage::PrepareInterior].is_drained()
+            && self.worker_group().all_parked()
         });
         self_mut.work_buckets[WorkBucketStage::Release].set_open_condition(move || {
             self.work_buckets[WorkBucketStage::Unconstrained].is_drained()
-                && self.work_buckets[WorkBucketStage::Prepare].is_drained()
-                && self.work_buckets[WorkBucketStage::Closure].is_drained()
+            && self.work_buckets[WorkBucketStage::Prepare].is_drained()
+            && self.work_buckets[WorkBucketStage::PrepareInterior].is_drained()
+            && self.work_buckets[WorkBucketStage::Closure].is_drained()
                 && self.worker_group().all_parked()
         });
         self_mut.work_buckets[WorkBucketStage::Final].set_open_condition(move || {
             self.work_buckets[WorkBucketStage::Unconstrained].is_drained()
                 && self.work_buckets[WorkBucketStage::Prepare].is_drained()
+                && self.work_buckets[WorkBucketStage::PrepareInterior].is_drained()
                 && self.work_buckets[WorkBucketStage::Closure].is_drained()
                 && self.work_buckets[WorkBucketStage::Release].is_drained()
                 && self.worker_group().all_parked()
@@ -191,6 +195,7 @@ impl<C: Context> Scheduler<C> {
             self.process_coordinator_work(finalizer);
         }
         debug_assert!(!self.work_buckets[WorkBucketStage::Prepare].is_activated());
+        debug_assert!(!self.work_buckets[WorkBucketStage::PrepareInterior].is_activated());
         debug_assert!(!self.work_buckets[WorkBucketStage::Closure].is_activated());
         debug_assert!(!self.work_buckets[WorkBucketStage::Release].is_activated());
         debug_assert!(!self.work_buckets[WorkBucketStage::Final].is_activated());
@@ -198,6 +203,7 @@ impl<C: Context> Scheduler<C> {
 
     pub fn deactivate_all(&self) {
         self.work_buckets[WorkBucketStage::Prepare].deactivate();
+        self.work_buckets[WorkBucketStage::PrepareInterior].deactivate();
         self.work_buckets[WorkBucketStage::Closure].deactivate();
         self.work_buckets[WorkBucketStage::Release].deactivate();
         self.work_buckets[WorkBucketStage::Final].deactivate();
@@ -302,7 +308,9 @@ impl<VM: VMBinding> MMTkScheduler<VM> {
     pub fn notify_mutators_paused(&self, mmtk: &'static MMTK<VM>) {
         mmtk.plan.base().control_collector_context.clear_request();
         debug_assert!(!self.work_buckets[WorkBucketStage::Prepare].is_activated());
+        debug_assert!(!self.work_buckets[WorkBucketStage::PrepareInterior].is_activated());
         self.work_buckets[WorkBucketStage::Prepare].activate();
+        self.work_buckets[WorkBucketStage::PrepareInterior].activate();
         let _guard = self.worker_monitor.0.lock().unwrap();
         self.worker_monitor.1.notify_all();
     }
