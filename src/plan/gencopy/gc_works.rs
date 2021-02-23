@@ -71,19 +71,20 @@ impl<VM: VMBinding> WorkerLocal for GenCopyCopyContext<VM> {
     }
 }
 
-pub struct GenCopyNurseryProcessEdges<VM: VMBinding> {
+pub struct GenCopyNurseryProcessEdges<VM: VMBinding, PE: ProcessEdges> {
     plan: &'static GenCopy<VM>,
-    base: ProcessEdgesBase<GenCopyNurseryProcessEdges<VM>>,
+    base: ProcessEdgesBase<GenCopyNurseryProcessEdges<VM, PE>>,
 }
 
-impl<VM: VMBinding> GenCopyNurseryProcessEdges<VM> {
+impl<VM: VMBinding, PE: ProcessEdges> GenCopyNurseryProcessEdges<VM, PE> {
     fn gencopy(&self) -> &'static GenCopy<VM> {
         self.plan
     }
 }
 
-impl<VM: VMBinding> ProcessEdgesWork for GenCopyNurseryProcessEdges<VM> {
+impl<VM: VMBinding, PE: ProcessEdges> ProcessEdgesWork for GenCopyNurseryProcessEdges<VM, PE> {
     type VM = VM;
+    type PE = PE;
     fn new(edges: Vec<Address>, _roots: bool, mmtk: &'static MMTK<VM>) -> Self {
         let base = ProcessEdgesBase::new(edges, mmtk);
         let plan = base.plan().downcast_ref::<GenCopy<VM>>().unwrap();
@@ -120,32 +121,33 @@ impl<VM: VMBinding> ProcessEdgesWork for GenCopyNurseryProcessEdges<VM> {
     }
 }
 
-impl<VM: VMBinding> Deref for GenCopyNurseryProcessEdges<VM> {
+impl<VM: VMBinding, PE: ProcessEdges> Deref for GenCopyNurseryProcessEdges<VM, PE> {
     type Target = ProcessEdgesBase<Self>;
     fn deref(&self) -> &Self::Target {
         &self.base
     }
 }
 
-impl<VM: VMBinding> DerefMut for GenCopyNurseryProcessEdges<VM> {
+impl<VM: VMBinding, PE: ProcessEdges> DerefMut for GenCopyNurseryProcessEdges<VM, PE> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.base
     }
 }
 
-pub struct GenCopyMatureProcessEdges<VM: VMBinding> {
+pub struct GenCopyMatureProcessEdges<VM: VMBinding, PE: ProcessEdges> {
     plan: &'static GenCopy<VM>,
-    base: ProcessEdgesBase<GenCopyMatureProcessEdges<VM>>,
+    base: ProcessEdgesBase<GenCopyMatureProcessEdges<VM, PE>>,
 }
 
-impl<VM: VMBinding> GenCopyMatureProcessEdges<VM> {
+impl<VM: VMBinding, PE: ProcessEdges> GenCopyMatureProcessEdges<VM, PE> {
     fn gencopy(&self) -> &'static GenCopy<VM> {
         self.plan
     }
 }
 
-impl<VM: VMBinding> ProcessEdgesWork for GenCopyMatureProcessEdges<VM> {
+impl<VM: VMBinding, PE: ProcessEdges> ProcessEdgesWork for GenCopyMatureProcessEdges<VM, PE> {
     type VM = VM;
+    type PE = PE;
     fn new(edges: Vec<Address>, _roots: bool, mmtk: &'static MMTK<VM>) -> Self {
         let base = ProcessEdgesBase::new(edges, mmtk);
         let plan = base.plan().downcast_ref::<GenCopy<VM>>().unwrap();
@@ -197,14 +199,14 @@ impl<VM: VMBinding> ProcessEdgesWork for GenCopyMatureProcessEdges<VM> {
     }
 }
 
-impl<VM: VMBinding> Deref for GenCopyMatureProcessEdges<VM> {
+impl<VM: VMBinding, PE: ProcessEdges> Deref for GenCopyMatureProcessEdges<VM, PE> {
     type Target = ProcessEdgesBase<Self>;
     fn deref(&self) -> &Self::Target {
         &self.base
     }
 }
 
-impl<VM: VMBinding> DerefMut for GenCopyMatureProcessEdges<VM> {
+impl<VM: VMBinding, PE: ProcessEdges> DerefMut for GenCopyMatureProcessEdges<VM, PE> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.base
     }
@@ -222,13 +224,13 @@ impl<VM: VMBinding> GCWork<VM> for GenCopyProcessModBuf {
         if mmtk.plan.in_nursery() {
             let mut modified_nodes = vec![];
             ::std::mem::swap(&mut modified_nodes, &mut self.modified_nodes);
-            let work = ScanObjects::<GenCopyNurseryProcessEdges<VM>>::new(modified_nodes, false);
+            let work = ScanObjects::<GenCopyNurseryProcessEdges<VM, NormalEdges>>::new(modified_nodes, false); // todo is this meant to be normal(?)
             worker.scheduler().work_buckets[WorkBucketStage::Closure].add(work);
 
             let mut modified_edges = vec![];
             ::std::mem::swap(&mut modified_edges, &mut self.modified_edges);
             worker.scheduler().work_buckets[WorkBucketStage::Closure].add(
-                GenCopyNurseryProcessEdges::<VM>::new(modified_edges, true, mmtk),
+                GenCopyNurseryProcessEdges::<VM, NormalEdges>::new(modified_edges, true, mmtk),
             );
         } else {
             // Do nothing

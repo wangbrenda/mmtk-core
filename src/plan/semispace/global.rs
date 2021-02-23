@@ -82,7 +82,8 @@ impl<VM: VMBinding> Plan for SemiSpace<VM> {
         self.base().set_gc_status(GcStatus::GcPrepare);
         // Stop & scan mutators (mutator scanning can happen before STW)
         scheduler.work_buckets[WorkBucketStage::Unconstrained]
-            .add(StopMutators::<SSProcessEdges<VM>>::new());
+            .add(StopMutators::<SSProcessEdges<VM, NormalEdges>,
+                                SSProcessEdges<VM, InteriorEdges>>::new());
         // Prepare global/collectors/mutators
         scheduler.work_buckets[WorkBucketStage::Prepare]
             .add(Prepare::<Self, SSCopyContext<VM>>::new(self));

@@ -100,10 +100,12 @@ impl<VM: VMBinding> Plan for GenCopy<VM> {
         // Stop & scan mutators (mutator scanning can happen before STW)
         if in_nursery {
             scheduler.work_buckets[WorkBucketStage::Unconstrained]
-                .add(StopMutators::<GenCopyNurseryProcessEdges<VM>>::new());
+                .add(StopMutators::<GenCopyNurseryProcessEdges<VM, NormalEdges>,
+                                    GenCopyNurseryProcessEdges<VM, InteriorEdges>>::new());
         } else {
             scheduler.work_buckets[WorkBucketStage::Unconstrained]
-                .add(StopMutators::<GenCopyMatureProcessEdges<VM>>::new());
+                .add(StopMutators::<GenCopyMatureProcessEdges<VM, NormalEdges>,
+                                    GenCopyMatureProcessEdges<VM, InteriorEdges>>::new());
         }
         // Prepare global/collectors/mutators
         scheduler.work_buckets[WorkBucketStage::Prepare]

@@ -165,54 +165,54 @@ impl<VM: VMBinding, W: CopyContext + WorkerLocal> GCWork<VM> for ReleaseCollecto
 ///
 /// TODO: Smaller work granularity
 #[derive(Default)]
-pub struct StopMutators<ScanEdges: ProcessEdgesWork>(PhantomData<ScanEdges>);
+pub struct StopMutators<NormalEdges: ProcessEdgesWork, InteriorEdges: ProcessEdgesWork>(PhantomData<NormalEdges>, PhantomData<InteriorEdges>);
 
-impl<ScanEdges: ProcessEdgesWork> StopMutators<ScanEdges> {
+impl<NormalEdges: ProcessEdgesWork, InteriorEdges: ProcessEdgesWork> StopMutators<NormalEdges, InteriorEdges> {
     pub fn new() -> Self {
-        Self(PhantomData)
+        Self(PhantomData, PhantomData)
     }
 }
 
-impl<E: ProcessEdgesWork> GCWork<E::VM> for StopMutators<E> {
-    fn do_work(&mut self, worker: &mut GCWorker<E::VM>, mmtk: &'static MMTK<E::VM>) {
+impl<NE: ProcessEdgesWork, IE: ProcessEdgesWork<VM = NE::VM>> GCWork<NE::VM> for StopMutators<NE, IE> {
+    fn do_work(&mut self, worker: &mut GCWorker<NE::VM>, mmtk: &'static MMTK<NE::VM>) {
         if worker.is_coordinator() {
             trace!("stop_all_mutators start");
             debug_assert_eq!(mmtk.plan.base().scanned_stacks.load(Ordering::SeqCst), 0);
-            <E::VM as VMBinding>::VMCollection::stop_all_mutators::<E>(worker.tls);
+            <NE::VM as VMBinding>::VMCollection::stop_all_mutators::<NE>(worker.tls);
             trace!("stop_all_mutators end");
             mmtk.scheduler.notify_mutators_paused(mmtk);
-            if <E::VM as VMBinding>::VMScanning::SCAN_MUTATORS_IN_SAFEPOINT {
+            if <NE::VM as VMBinding>::VMScanning::SCAN_MUTATORS_IN_SAFEPOINT {
                 // Prepare mutators if necessary
                 // FIXME: This test is probably redundant. JikesRVM requires to call `prepare_mutator` once after mutators are paused
                 if !mmtk.plan.common().stacks_prepared() {
-                    for mutator in <E::VM as VMBinding>::VMActivePlan::mutators() {
-                        <E::VM as VMBinding>::VMCollection::prepare_mutator(
+                    for mutator in <NE::VM as VMBinding>::VMActivePlan::mutators() {
+                        <NE::VM as VMBinding>::VMCollection::prepare_mutator(
                             mutator.get_tls(),
                             mutator,
                         );
                     }
                 }
                 // Scan mutators
-                if <E::VM as VMBinding>::VMScanning::SINGLE_THREAD_MUTATOR_SCANNING {
+                if <NE::VM as VMBinding>::VMScanning::SINGLE_THREAD_MUTATOR_SCANNING {
                     mmtk.scheduler.work_buckets[WorkBucketStage::Prepare]
-                        .add(ScanStackRoots::<E>::new());
+                        .add(ScanStackRoots::<NE>::new());
                 } else {
-                    for mutator in <E::VM as VMBinding>::VMActivePlan::mutators() {
+                    for mutator in <NE::VM as VMBinding>::VMActivePlan::mutators() {
                         mmtk.scheduler.work_buckets[WorkBucketStage::Prepare]
-                            .add(ScanStackRoot::<E>(mutator));
+                            .add(ScanStackRoot::<NE>(mutator));
                     }
                 }
             }
             mmtk.scheduler.work_buckets[WorkBucketStage::Prepare]
-                .add(ScanVMSpecificRoots::<E>::new());
+                .add(ScanVMSpecificRoots::<NE, IE>::new());
         } else {
             mmtk.scheduler
-                .add_coordinator_work(StopMutators::<E>::new(), worker);
+                .add_coordinator_work(StopMutators::<NE, IE>::new(), worker);
         }
     }
 }
 
-impl<E: ProcessEdgesWork> CoordinatorWork<MMTK<E::VM>> for StopMutators<E> {}
+impl<NE: ProcessEdgesWork, IE: ProcessEdgesWork<VM = NE::VM>> CoordinatorWork<MMTK<NE::VM>> for StopMutators<NE, IE> {}
 
 #[derive(Default)]
 pub struct EndOfGC;
@@ -295,18 +295,18 @@ impl<E: ProcessEdgesWork> GCWork<E::VM> for ScanStackRoot<E> {
 }
 
 #[derive(Default)]
-pub struct ScanVMSpecificRoots<Edges: ProcessEdgesWork>(PhantomData<Edges>);
+pub struct ScanVMSpecificRoots<NormalEdges: ProcessEdgesWork, InteriorEdges: ProcessEdgesWork<VM = NormalEdges::VM>>(PhantomData<NormalEdges>, PhantomData<InteriorEdges>);
 
-impl<E: ProcessEdgesWork> ScanVMSpecificRoots<E> {
+impl<NE: ProcessEdgesWork, IE: ProcessEdgesWork<VM = NE::VM>> ScanVMSpecificRoots<NE, IE> {
     pub fn new() -> Self {
-        Self(PhantomData)
+        Self(PhantomData, PhantomData)
     }
 }
 
-impl<E: ProcessEdgesWork> GCWork<E::VM> for ScanVMSpecificRoots<E> {
-    fn do_work(&mut self, _worker: &mut GCWorker<E::VM>, _mmtk: &'static MMTK<E::VM>) {
+impl<NE: ProcessEdgesWork, IE: ProcessEdgesWork<VM = NE::VM>> GCWork<NE::VM> for ScanVMSpecificRoots<NE,IE> {
+    fn do_work(&mut self, _worker: &mut GCWorker<NE::VM>, _mmtk: &'static MMTK<NE::VM>) {
         trace!("ScanStaticRoots");
-        <E::VM as VMBinding>::VMScanning::scan_vm_specific_roots::<E>();
+        <NE::VM as VMBinding>::VMScanning::scan_vm_specific_roots::<NE, IE>();
     }
 }
 
@@ -350,11 +350,47 @@ impl<E: ProcessEdgesWork> ProcessEdgesBase<E> {
     }
 }
 
+pub trait ProcessEdges : Send + Sync + 'static + Sized + Default
+{
+    fn preprocess_edge(ob: ObjectReference) -> ObjectReference;
+    fn postprocess_edge(ob: ObjectReference) -> ObjectReference;
+}
+
+#[derive(Default)]
+pub struct NormalEdges;
+
+#[derive(Default)]
+pub struct InteriorEdges;
+
+impl ProcessEdges for NormalEdges {
+    fn preprocess_edge(ob: ObjectReference) -> ObjectReference {
+        // do nothing
+        ob
+    }
+    fn postprocess_edge(ob: ObjectReference) -> ObjectReference {
+        // do nothing
+        ob
+    }
+}
+
+impl ProcessEdges for InteriorEdges {
+    fn preprocess_edge(ob: ObjectReference) -> ObjectReference {
+        println!("preprocess interior edge");
+        ob
+    }
+    fn postprocess_edge(ob: ObjectReference) -> ObjectReference {
+        // do nothing
+        println!("postprocess interior edge");
+        ob
+    }
+}
+
 /// Scan & update a list of object slots
 pub trait ProcessEdgesWork:
     Send + Sync + 'static + Sized + DerefMut + Deref<Target = ProcessEdgesBase<Self>>
 {
     type VM: VMBinding;
+    type PE: ProcessEdges;
     const CAPACITY: usize = 4096;
     const OVERWRITE_REFERENCE: bool = true;
     const SCAN_OBJECTS_IMMEDIATELY: bool = true;
@@ -393,7 +429,9 @@ pub trait ProcessEdgesWork:
     #[inline]
     fn process_edge(&mut self, slot: Address) {
         let object = unsafe { slot.load::<ObjectReference>() };
+        let object = Self::PE::preprocess_edge(object);
         let new_object = self.trace_object(object);
+        let new_object = Self::PE::postprocess_edge(new_object);
         if Self::OVERWRITE_REFERENCE {
             unsafe { slot.store(new_object) };
         }

@@ -62,7 +62,7 @@ pub trait Scanning<VM: VMBinding> {
 
     /// Scan VM-specific roots. The creation of all root scan tasks (except thread scanning)
     /// goes here.
-    fn scan_vm_specific_roots<W: ProcessEdgesWork<VM = VM>>();
+    fn scan_vm_specific_roots<NW: ProcessEdgesWork<VM = VM>, IW: ProcessEdgesWork<VM = VM>>();
 
     /// Return whether the VM supports return barriers. This is unused at the moment.
     fn supports_return_barrier() -> bool;

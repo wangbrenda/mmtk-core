@@ -69,21 +69,22 @@ impl<VM: VMBinding> WorkerLocal for SSCopyContext<VM> {
     }
 }
 
-pub struct SSProcessEdges<VM: VMBinding> {
+pub struct SSProcessEdges<VM: VMBinding, PE: ProcessEdges> {
     // Use a static ref to the specific plan to avoid overhead from dynamic dispatch or
     // downcast for each traced object.
     plan: &'static SemiSpace<VM>,
-    base: ProcessEdgesBase<SSProcessEdges<VM>>,
+    base: ProcessEdgesBase<SSProcessEdges<VM, PE>>,
 }
 
-impl<VM: VMBinding> SSProcessEdges<VM> {
+impl<VM: VMBinding, PE: ProcessEdges> SSProcessEdges<VM, PE> {
     fn ss(&self) -> &'static SemiSpace<VM> {
         self.plan
     }
 }
 
-impl<VM: VMBinding> ProcessEdgesWork for SSProcessEdges<VM> {
+impl<VM: VMBinding, PE: ProcessEdges> ProcessEdgesWork for SSProcessEdges<VM, PE> {
     type VM = VM;
+    type PE = PE;
     fn new(edges: Vec<Address>, _roots: bool, mmtk: &'static MMTK<VM>) -> Self {
         let base = ProcessEdgesBase::new(edges, mmtk);
         let plan = base.plan().downcast_ref::<SemiSpace<VM>>().unwrap();
@@ -118,7 +119,7 @@ impl<VM: VMBinding> ProcessEdgesWork for SSProcessEdges<VM> {
     }
 }
 
-impl<VM: VMBinding> Deref for SSProcessEdges<VM> {
+impl<VM: VMBinding, PE: ProcessEdges> Deref for SSProcessEdges<VM, PE> {
     type Target = ProcessEdgesBase<Self>;
     #[inline]
     fn deref(&self) -> &Self::Target {
@@ -126,7 +127,7 @@ impl<VM: VMBinding> Deref for SSProcessEdges<VM> {
     }
 }
 
-impl<VM: VMBinding> DerefMut for SSProcessEdges<VM> {
+impl<VM: VMBinding, PE: ProcessEdges> DerefMut for SSProcessEdges<VM, PE> {
     #[inline]
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.base
