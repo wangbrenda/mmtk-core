@@ -4,7 +4,9 @@ use crate::plan::AllocationSemantics as AllocationType;
 use crate::policy::space::Space;
 use crate::util::alloc::allocators::{AllocatorSelector, Allocators};
 use crate::util::OpaquePointer;
+use crate::util::conversions;
 use crate::util::{Address, ObjectReference};
+use crate::util::interior::*;
 use crate::vm::VMBinding;
 
 use enum_map::EnumMap;
@@ -62,11 +64,23 @@ impl<VM: VMBinding> MutatorContext<VM> for Mutator<VM> {
         offset: isize,
         allocator: AllocationType,
     ) -> Address {
-        unsafe {
-            self.allocators
-                .get_allocator_mut(self.config.allocator_mapping[allocator])
+        let address =
+            unsafe {
+                self.allocators
+                    .get_allocator_mut(self.config.allocator_mapping[allocator])
+            }
+            .alloc(size, align, offset);
+        if !address.is_zero() {
+            if !meta_space_mapped(address) {
+                // VM::VMActivePlan::global.poll(false, self);
+                let chunk_start = conversions::chunk_align_down(address);
+                map_meta_space_for_chunk(chunk_start);
+            }
+            set_alloc_bit(address);
+            assert!(is_alloced(unsafe { address.to_object_reference() }));
         }
-        .alloc(size, align, offset)
+        println!("allocated address {:?} ", address);
+        address
     }
 
     // Note that this method is slow, and we expect VM bindings that care about performance to implement allocation fastpath sequence in their bindings.

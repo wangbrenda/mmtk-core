@@ -352,36 +352,45 @@ impl<E: ProcessEdgesWork> ProcessEdgesBase<E> {
 
 pub trait ProcessEdges : Send + Sync + 'static + Sized + Default
 {
-    fn preprocess_edge(ob: ObjectReference) -> ObjectReference;
-    fn postprocess_edge(ob: ObjectReference) -> ObjectReference;
+    fn new() -> Self;
+    fn preprocess_edge(&mut self, ob: ObjectReference) -> ObjectReference;
+    fn postprocess_edge(&mut self, ob: ObjectReference) -> ObjectReference;
 }
 
 #[derive(Default)]
 pub struct NormalEdges;
 
 #[derive(Default)]
-pub struct InteriorEdges;
+pub struct InteriorEdges { offset: usize }
 
 impl ProcessEdges for NormalEdges {
-    fn preprocess_edge(ob: ObjectReference) -> ObjectReference {
+    fn new() -> Self { Self{} }
+
+    fn preprocess_edge(&mut self, ob: ObjectReference) -> ObjectReference {
         // do nothing
         ob
     }
-    fn postprocess_edge(ob: ObjectReference) -> ObjectReference {
+    fn postprocess_edge(&mut self, ob: ObjectReference) -> ObjectReference {
         // do nothing
         ob
     }
 }
 
 impl ProcessEdges for InteriorEdges {
-    fn preprocess_edge(ob: ObjectReference) -> ObjectReference {
-        println!("preprocess interior edge");
-        ob
+    fn new() -> Self {
+        let offset: usize = 0;
+        Self { offset }
     }
-    fn postprocess_edge(ob: ObjectReference) -> ObjectReference {
-        // do nothing
-        println!("postprocess interior edge");
-        ob
+    fn preprocess_edge(&mut self, ob: ObjectReference) -> ObjectReference {
+        let new_address = interior::find_object(ob).to_address() + 16 as usize; // adjust for header
+        self.offset = ob.to_address().get_extent(new_address);
+        println!("preprocess interior edge [{:?}] [{:?}]", ob, new_address);
+        unsafe { new_address.to_object_reference() }
+    }
+    fn postprocess_edge(&mut self, ob: ObjectReference) -> ObjectReference {
+        let new_object = unsafe { ob.to_address().add(self.offset).to_object_reference() };
+        println!("postprocess interior edge off[{:?}] orig[{:?}] new[{:?}]", self.offset, ob, new_object);
+        new_object
     }
 }
 
@@ -428,10 +437,11 @@ pub trait ProcessEdgesWork:
 
     #[inline]
     fn process_edge(&mut self, slot: Address) {
-        let object = unsafe { slot.load::<ObjectReference>() };
-        let object = Self::PE::preprocess_edge(object);
-        let new_object = self.trace_object(object);
-        let new_object = Self::PE::postprocess_edge(new_object);
+        let loaded_object = unsafe { slot.load::<ObjectReference>() };
+        let mut edge = Self::PE::new();
+        let object = edge.preprocess_edge(loaded_object);
+        let traced_object = self.trace_object(object);
+        let new_object = edge.postprocess_edge(traced_object);
         if Self::OVERWRITE_REFERENCE {
             unsafe { slot.store(new_object) };
         }

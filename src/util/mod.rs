@@ -13,6 +13,7 @@ pub mod generic_freelist;
 pub mod header_byte;
 pub mod heap;
 pub mod int_array_freelist;
+pub mod interior;
 pub mod logger;
 pub mod malloc;
 pub mod memory;
